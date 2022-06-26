@@ -2,9 +2,11 @@ import discord
 import os
 from discord.ext import commands
 from dotenv import load_dotenv
-import aiosqlite
 import random
-import asyncio
+import sqlite3
+
+user_rank_info = {}
+
 
 
 
@@ -16,25 +18,16 @@ case_insensitive=False,
 )
 bot.remove_command('help')
 @bot.event
+
+
 async def on_ready():
     print("My name is {0.user} and i am ready to go".format(bot))
     await bot.change_presence(activity=discord.Game('n?help'))
-    setattr(bot, "conn", await aiosqlite.connect("level.db"))
-    setattr(bot, "cursor", bot.conn.cursor)
-    # await asyncio.sleep(3)
-    # if bot.db_con is None:
-    #     print("bot.db_con is None")
-    #     bot.db_con =  await aiosqlite.connect("level.db")1
-    # print(bot)
-    # print(bot.db)
-    # print(bot.db.cursor)
-    async with bot.cursor as cursor:
-        await cursor.execute('CREATE TABLE IF NOT EXISTS levels(level INTEGER, xp INTEGER, user INTEGER, guild, INTEGER)')
-
- 
+      
 
 @bot.command(aliases=['h'])
 async def help(ctx: commands.Context):
+    print("need help")
     embed = discord.Embed(
         title = "🤖 Help has arrived",
         description = "Hello! I am currently under development by Nikkk †",
@@ -49,8 +42,6 @@ async def help(ctx: commands.Context):
     embed.set_footer(text="Nice to meet you!")
     await ctx.send(embed=embed)
     
-
-
 
 @bot.command(aliases=['lb'])
 async def leaderboard(ctx):
@@ -88,78 +79,34 @@ async def leaderboard(ctx):
 
     await ctx.send(embed=embed)
 
-@bot.event
-async def message(message):
-    if message.author.bot :
-        return
-    author = message.author
-    guild = message.guild
-    
-    async with bot.cursor as cursor:
-        await cursor.execute('SELECT xp FROM levels WHERE use = ? AND guild = ?', (author.id, guild.id,))
-        xp = await cursor.fetchone()
-        await cursor.execute('SELECT xp FROM levels WHERE use = ? AND guild = ?', (author.id, guild.id,))
-        level = await cursor.fetchone()
 
 
-        if not xp or not level :
-            await cursor.execute('INSET INTO levels (level, xp, user, guild) VALUE (?,?,?,?)',(0, 0, author.id, guild.id,))
-            await bot.commit()
-        try :
-            xp = xp[0]
-            level = level[0]
-        except TypeError:
-            xp = 0 
-            level = 0
-        if level < 5 :
-            xp += random.randint(1,3)
-            await cursor.execute('INSET INTO levels (level, xp, user, guild) VALUE (?,?,?,?)',(xp, level, author.id, guild.id,))
-        else :
-            rand = random.randint(1, level//4)
-            if rand == 1 :
-                xp += random.randint(1,3)
-                await cursor.execute('INSET INTO levels (level, xp, user, guild) VALUE (?,?,?,?)',(xp, level, author.id, guild.id,))
-        if level >= 100:
-                await cursor.execute('INSET INTO levels (level, xp, user, guild) VALUE (?,?,?,?)',( level, author.id, guild.id,))
-                await cursor.execute('INSET INTO levels (level, xp, user, guild) VALUE (?,?,?,?)',(0, level, author.id, guild.id,))
-                await message.channel.send(f'{author.mention} has leveled up to **{level}** !!')
-    await bot.db.commit()
 
 
 
 @bot.command(aliases=['r'])
-async def rank(ctx: commands.Context, message = discord.user):
-    #if message.mentions :
-        #print("mention detected")
-        #title_id = message.id
-        #print("id retrieved")
-   # else :
-        #title_id = ctx.author
-        #print("no mention")
-    #async with bot.cursor as cursor :
-        #await cursor.execute('SELECT xp FROM levels WHERE use = ? AND guild = ?', (member.id, ctx.id,))
-        #xp = await cursor.fetchone()
-        #await cursor.execute('SELECT xp FROM levels WHERE use = ? AND guild = ?', (member.id, ctx.id,))
-        #level = await cursor.fetchone()
-        #if not xp or not level :
-            #await cursor.execute('INSET INTO levels (level, xp, user, guild) VALUE (?,?,?,?)',(0, 0, member.id, ctx.id))
-            #await bot.commit()
-        #try :
-            #xp = xp[0]
-            #level = level[0]
-        #except TypeError:
-            #xp = 0 
-            #level = 0
-
+async def rank(ctx: commands.Context, ):
+    def get_formatted_xp(user_rank_info):
+        xp = user_rank_info[str(ctx.author)]["xp"]
+        level = user_rank_info[str(ctx.author)]["level"]
+        xp_required = (level + 1) ** 4
+        output = "`{xp}/{xp_required}`".format(xp=xp, xp_required=xp_required)
+        return output
+    def get_formatted_level(user_rank_info):
+        level = user_rank_info[str(ctx.author)]["level"]
+        output = "`{level}`".format(level=level)
+        return output
     print("making embed")
+    xp_rank = get_formatted_xp(user_rank_info=user_rank_info)
+    level_rank = get_formatted_level(user_rank_info=user_rank_info)
     embed = discord.Embed(
         title= "*Server Rank of -* " + str(ctx.author) ,
         description= "**Your server rank increases as you chat, increase your rank to get high reward roles and flex on your friends** <:2940coolpepe:988766350430322738> ",
         colour=  0xFF5733
     )
-    embed.add_field(name="Rank", value="12", inline=False)
-    embed.add_field(name="Current level", value="10", inline=True)
-    embed.add_field(name="xp", value="1200/3500", inline=True)
+    embed.add_field(name="Rank", value="00", inline=False)
+    embed.add_field(name="Current level", value= level_rank, inline=True)
+    embed.add_field(name="xp", value=xp_rank, inline=True)
     embed.add_field(name="Awarded role", value="<role>", inline=False)
     embed.set_author(name=ctx.author,
     icon_url=ctx.author.avatar_url)
@@ -167,7 +114,37 @@ async def rank(ctx: commands.Context, message = discord.user):
     embed.set_image(url="https://i.imgur.com/cerqOld.gif")
     await ctx.send(embed=embed)
             
-       
+@bot.event
+async def on_message(context) :
+    human_memebers = []
+    for user in list(context.guild.members):
+        if user.bot :
+            continue
+        else:
+            human_memebers.append(user)
+    if context.author in human_memebers :
+
+        if str(context.author) in user_rank_info :
+            user_rank_info[str(context.author)]["xp"] = int(user_rank_info[str(context.author)]["xp"]) + random.randint(0,(5 + 2*(int(user_rank_info[str(context.author)]["level"]))))
+            if int(user_rank_info[str(context.author)]["xp"]) > 0 :
+                if int(user_rank_info[str(context.author)]["level"]) < int((int(user_rank_info[str(context.author)]["xp"]))**(1/4)) :
+                    #lvl_up = "congrats {user} !! your have leveled up to".format + str(int((int(user_rank_info["xp"]))**(1/4)))
+                    await context.channel.send(str("You leveled up !!"))
+                    print(user_rank_info)
+
+            user_rank_info[str(context.author)]["level"] = int((int(user_rank_info[str(context.author)]["xp"]))**(1/4))
+
+
+
+        if str(context.author) not in user_rank_info :
+            user_rank_info[str(context.author)] = {"level" : 1, "xp" : 0, }
+            print(user_rank_info)
+            return user_rank_info
+    
+        
+        else : 
+            await bot.process_commands(context)
+     
 
 
 token = os.environ['discord-token']
