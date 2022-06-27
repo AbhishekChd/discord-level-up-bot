@@ -5,6 +5,25 @@ from discord.ext import commands
 from dotenv import load_dotenv
 import random
 import sqlite3
+from flask import Flask
+from threading import Thread
+from discord.ext import tasks
+from itertools import cycle
+from discord.ext.commands import cooldown, BucketType
+from discord.ext.commands import has_permissions, MissingPermissions
+
+app = Flask('')
+
+@app.route('/')
+def main():
+  return "Your Bot Is Ready"
+
+def run():
+  app.run(host="0.0.0.0", port=8000)
+
+def keep_alive():
+  server = Thread(target=run)
+  server.start()
 
 
 
@@ -15,19 +34,27 @@ intents = intents,
 case_insensitive=False,
 )
 bot.remove_command('help')
+
+status = cycle(['n?help','n?h'])
+
+
+
 @bot.event
-
-
-
 async def on_ready():
     print("My name is {0.user} and i am ready to go".format(bot))
-    await bot.change_presence(activity=discord.Game('n?help'))
-    conn = sqlite3.connect('user_level_data.sqlite', timeout = 10)
+    change_status.start()
+    print("Your bot is ready")
+    conn = sqlite3.connect('user_level_data.sqlite')
     cur = conn.cursor()
     try :
         cur.execute('CREATE TABLE rankings (rank INTEGER, user_id STRING, level INTEGER, xp INTEGER, awarded_role INTEGER)')
     except :
         print("database exists")
+    conn.close()
+
+@tasks.loop(seconds=10)
+async def change_status():
+  await bot.change_presence(activity=discord.Game(next(status)))
 
       
 
@@ -50,7 +77,7 @@ async def help(ctx: commands.Context):
     await ctx.send(embed=embed)
 
 
-
+@commands.cooldown(1, 30, commands.BucketType.user)
 @bot.command(aliases=['lb'])
 async def leaderboard(ctx):
 
@@ -89,12 +116,21 @@ async def leaderboard(ctx):
 
 
 
+
+@leaderboard.error
+async def leaderboard_error(ctx, error):
+        if isinstance(error, commands.CommandOnCooldown):
+            em = discord.Embed(title=f"Slow it down bro!",description=f"Try again in {error.retry_after:.2f}s.", color=0xFF5733)
+            await ctx.send(embed=em)
+
+
+@commands.cooldown(1, 10, commands.BucketType.user)
 @bot.command(aliases=['r'])
 async def rank(ctx: commands.Context):
-    conn = sqlite3.connect('user_level_data.sqlite', timeout = 10)
+    conn = sqlite3.connect('user_level_data.sqlite', timeout = 60)
     cur = conn.cursor()
     def get_formatted_xp():
-        conn = sqlite3.connect('user_level_data.sqlite', timeout = 10)
+        conn = sqlite3.connect('user_level_data.sqlite', timeout = 60)
         cur = conn.cursor()
         cur.execute('SELECT xp FROM rankings WHERE user_id = ?', (str(ctx.author.id), ))
         xp = cur.fetchone()
@@ -105,7 +141,7 @@ async def rank(ctx: commands.Context):
         cur.close()
         return output
     def get_formatted_level():
-        conn = sqlite3.connect('user_level_data.sqlite', timeout = 10)
+        conn = sqlite3.connect('user_level_data.sqlite', timeout = 60)
         cur = conn.cursor()
         cur.execute('SELECT level FROM rankings WHERE user_id = ?', (str(ctx.author.id), ))
         level = cur.fetchone()
@@ -113,7 +149,7 @@ async def rank(ctx: commands.Context):
         cur.close()
         return output
     def get_formatted_rank():
-        conn = sqlite3.connect('user_level_data.sqlite', timeout = 10)
+        conn = sqlite3.connect('user_level_data.sqlite', timeout = 60)
         cur = conn.cursor()
         cur.execute('SELECT rank FROM rankings WHERE user_id = ?', (str(ctx.author.id), ))
         rank = cur.fetchone()
@@ -143,6 +179,16 @@ async def rank(ctx: commands.Context):
 
 
 
+
+@rank.error
+async def rank_error(ctx, error):
+        if isinstance(error, commands.CommandOnCooldown):
+            em = discord.Embed(title=f"Slow it down bro!",description=f"Try again in {error.retry_after:.2f}s.", color=0xFF5733)
+            await ctx.send(embed=em)
+
+
+
+
 @bot.event
 async def on_message(context) :
 
@@ -157,7 +203,7 @@ async def on_message(context) :
                 continue
             else:
                 human_memebers.append(user)
-        conn = sqlite3.connect('user_level_data.sqlite', timeout = 20)
+        conn = sqlite3.connect('user_level_data.sqlite', timeout = 60)
         cur = conn.cursor()
         cur.execute('SELECT xp FROM rankings WHERE user_id = ?', (str(context.author.id),))
         row = cur.fetchone()
@@ -199,7 +245,7 @@ async def on_message(context) :
                         new_rank = i + 1
                         cur.execute('UPDATE rankings SET rank = {new_rank} WHERE user_id = ? '.format(new_rank=new_rank), (str(user_id), ))
                     
-                    level_list = [988788954520223786, 988789087542607882, 988789327167361074]
+                    level_list = [988788954520223786, 988789087542607882, 988789327167361074, 988789558642638869, 988789361443237978, 988794780584669236, 988794832333996102, 988795209104097320, 988794902529863690, 988795128753827941, 988795479376670740, 988795479426998402, 988795480911794176, 988795479477325855, 988795962296238100, 988796013328359484, 988796062422675498, 988796151081869372, 991071423495806976, 988796343986298890]
                     cur.execute('SELECT level FROM rankings WHERE user_id = ?', (str(context.author.id), ))
                     current_level = cur.fetchone()
                     for level_role in level_list :                       
@@ -215,6 +261,9 @@ async def on_message(context) :
         conn.commit()
         cur.close()
      
+
+
+
 
 
 @bot.command(aliases=['gx']) 
@@ -264,6 +313,14 @@ async def givexp(context,user: discord.Member, *, xp_addition) :
 
 
 
+
+@givexp.error
+async def givexp_error(ctx, error):
+        if isinstance(error,  MissingPermissions):
+            em = discord.Embed(title=f"Watch out !",description="This is a admin only command !", color=0xFF5733)
+            await ctx.send(embed=em)
+
+
 @bot.command(aliases=['rx']) 
 @commands.has_permissions(administrator=True)
 async def resetxp(context,user: discord.Member) :
@@ -293,6 +350,13 @@ async def resetxp(context,user: discord.Member) :
     cur.close()
 
 
+
+
+@resetxp.error
+async def resetxp_error(ctx, error):
+        if isinstance(error,  MissingPermissions ):
+            em = discord.Embed(title=f"Watch out !",description="This is a admin only command !", color=0xFF5733)
+            await ctx.send(embed=em)
 
 @bot.command(aliases=['sl']) 
 @commands.has_permissions(administrator=True)
@@ -342,5 +406,12 @@ async def setlevel(context,user: discord.Member, *, set_level) :
 
 
 
-token = os.environ['discord-token']
+@setlevel.error
+async def setlevel_error(ctx, error):
+        if isinstance(error,  MissingPermissions ):
+            em = discord.Embed(title=f"Watch out !",description="This is a admin only command !", color=0xFF5733)
+            await ctx.send(embed=em)
+
+keep_alive()
+token = os.environ['discord_token']
 bot.run(token)
